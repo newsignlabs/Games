@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEON RAIDER</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;900&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"></script>
+    <style>
+        :root { 
+            --neon-blue: #00ffff; 
+            --neon-pink: #ff00ff; 
+            --red: #ff3333; 
+            --orange: #ffaa00; 
+            --green: #39ff14; 
+            --glass: rgba(0, 20, 40, 0.9);
+        }
+        
+        body { margin: 0; background: #000; color: #fff; font-family: 'Orbitron', sans-serif; overflow: hidden; touch-action: none; }
+
+        /* UI Layer */
+        .ui { position: absolute; top: 20px; width: 100%; display: flex; justify-content: center; pointer-events: none; z-index: 100; }
+        .stats { background: var(--glass); padding: 15px 30px; border: 2px solid var(--neon-blue); display: flex; gap: 40px; border-radius: 5px; box-shadow: 0 0 20px rgba(0,255,255,0.2); }
+
+        /* Menu Styling */
+        .menu { 
+            position: absolute; 
+            inset: 0; 
+            background: radial-gradient(circle at center, #0a192f 0%, #000 100%); 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            z-index: 200; 
+            padding: 40px;
+            text-align: center;
+        }
+
+        h1 { 
+            font-size: 4rem; 
+            color: #fff; 
+            text-transform: uppercase;
+            letter-spacing: 10px;
+            margin-bottom: 10px;
+            text-shadow: 0 0 10px var(--neon-blue), 0 0 20px var(--neon-blue);
+            animation: flicker 3s infinite;
+        }
+
+        .instructions {
+            background: var(--glass);
+            border: 1px solid var(--neon-blue);
+            padding: 25px;
+            border-radius: 10px;
+            max-width: 550px;
+            backdrop-filter: blur(10px);
+            margin: 20px 0;
+            line-height: 1.6;
+        }
+
+        .instruction-item {
+            display: flex;
+            justify-content: space-between;
+            margin: 8px 0;
+            font-size: 0.85rem;
+        }
+
+        .btn { 
+            background: transparent; 
+            border: 3px solid var(--neon-blue); 
+            color: var(--neon-blue); 
+            padding: 18px 50px; 
+            cursor: pointer; 
+            font-family: 'Orbitron', sans-serif; 
+            font-weight: 900; 
+            text-transform: uppercase;
+            transition: 0.3s;
+            box-shadow: 0 0 15px var(--neon-blue), inset 0 0 10px var(--neon-blue);
+            pointer-events: all;
+        }
+
+        .btn:hover {
+            background: var(--neon-blue);
+            color: #000;
+            box-shadow: 0 0 40px var(--neon-blue);
+        }
+
+        .hidden { display: none !important; }
+
+        @keyframes flicker {
+            0%, 19%, 22%, 62%, 64%, 70%, 100% { opacity: 1; }
+            20%, 21%, 63%, 65% { opacity: 0.4; }
+        }
+
+        .red-txt { color: var(--red); }
+        .orange-txt { color: var(--orange); }
+        .green-txt { color: var(--green); }
+    </style>
+</head>
+<body>
+
+<div id="startMenu" class="menu">
+    <h1>Neon Raider</h1>
+    <div class="instructions">
+        <p style="margin-bottom: 10px; font-weight: 900; color: var(--neon-blue);">SYSTEM INSTRUCTIONS</p>
+        <div class="instruction-item"><span>NAVIGATION:</span><span>MOUSE LEFT / RIGHT</span></div>
+        <div class="instruction-item"><span>WEAPONS:</span><span>LEFT CLICK TO FIRE</span></div>
+        <div class="instruction-item"><span class="red-txt">RED CUBES:</span><span>DANGER - LOSE HULL</span></div>
+        <div class="instruction-item"><span class="orange-txt">ORANGE SPHERES:</span><span>UPGRADE - TRIPLE SHOT</span></div>
+        <div class="instruction-item"><span class="green-txt">GREEN OCTAGONS:</span><span>REPAIR - RESTORE HULL</span></div>
+        <p style="margin-top: 15px; font-size: 0.75rem;">GOAL: SURVIVE UNTIL 5000M</p>
+    </div>
+    <button class="btn" onclick="game.start()">ENGAGE NEURAL LINK</button>
+</div>
+
+<div id="gameOverMenu" class="menu hidden">
+    <h1 style="color: var(--red);">TERMINATED</h1>
+    <button class="btn" onclick="game.start()">REBOOT SYSTEM</button>
+</div>
+
+<div id="winMenu" class="menu hidden">
+    <h1 style="color: var(--green);">GOAL REACHED</h1>
+    <button class="btn" onclick="game.start()">PLAY AGAIN</button>
+</div>
+
+<div class="ui">
+    <div class="stats">
+        <div>HULL: <span id="health">100</span>%</div>
+        <div>DIST: <span id="dist">0</span>m</div>
+        <div>SCORE: <span id="score">0</span></div>
+    </div>
+</div>
+
+<script>
+class SoundEngine {
+    constructor() {
+        this.ctx = null;
+    }
+    init() {
+        if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    pew() {
+        if (!this.ctx) return;
+        let o = this.ctx.createOscillator(), g = this.ctx.createGain();
+        o.type = 'triangle'; o.frequency.setValueAtTime(500, this.ctx.currentTime);
+        o.frequency.exponentialRampToValueAtTime(50, this.ctx.currentTime + 0.1);
+        g.gain.setValueAtTime(0.1, this.ctx.currentTime); g.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.1);
+        o.connect(g); g.connect(this.ctx.destination); o.start(); o.stop(this.ctx.currentTime + 0.1);
+    }
+    shatter() {
+        if (!this.ctx) return;
+        let o = this.ctx.createOscillator(), g = this.ctx.createGain();
+        o.type = 'sawtooth'; o.frequency.setValueAtTime(150, this.ctx.currentTime);
+        g.gain.setValueAtTime(0.1, this.ctx.currentTime); g.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.2);
+        o.connect(g); g.connect(this.ctx.destination); o.start(); o.stop(this.ctx.currentTime + 0.2);
+    }
+}
+
+class NeonRaider {
+    constructor() {
+        this.sound = new SoundEngine();
+        this.scene = new THREE.Scene();
+        this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        this.renderer = new THREE.WebGLRenderer({ antialias: true });
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(this.renderer.domElement);
+
+        this.playing = false;
+        this.enemies = [];
+        this.bullets = [];
+        this.shards = [];
+        this.tripleShotTicks = 0;
+        this.targetX = 0;
+
+        this.initWorld();
+        this.initShip();
+        this.bindEvents();
+        this.animate();
+    }
+
+    initWorld() {
+        // Double grid for "moving" effect
+        this.gridGroup = new THREE.Group();
+        const g1 = new THREE.GridHelper(400, 40, 0x00ffff, 0x002222);
+        const g2 = new THREE.GridHelper(400, 40, 0xff00ff, 0x220022);
+        g2.position.z = -200;
+        this.gridGroup.add(g1, g2);
+        this.gridGroup.position.y = -2;
+        this.scene.add(this.gridGroup);
+
+        this.scene.fog = new THREE.Fog(0x000000, 20, 160);
+        this.camera.position.set(0, 10, 25);
+        this.camera.lookAt(0, 0, -10);
+
+        const light = new THREE.PointLight(0xffffff, 100, 100);
+        light.position.set(0, 10, 0);
+        this.scene.add(light);
+    }
+
+    initShip() {
+        this.ship = new THREE.Group();
+        // Slicker ship design
+        const hull = new THREE.Mesh(new THREE.ConeGeometry(0.8, 3, 4), new THREE.MeshStandardMaterial({color: 0x444444}));
+        hull.rotation.x = Math.PI/2;
+        const wing = new THREE.Mesh(new THREE.BoxGeometry(4, 0.1, 1.2), new THREE.MeshBasicMaterial({color: 0x00ffff, transparent: true, opacity: 0.8}));
+        this.ship.add(hull, wing);
+        this.scene.add(this.ship);
+    }
+
+    bindEvents() {
+        window.addEventListener('mousemove', e => {
+            this.targetX = (e.clientX / window.innerWidth - 0.5) * 50;
+        });
+        window.addEventListener('mousedown', () => this.shoot());
+        window.addEventListener('resize', () => {
+            this.camera.aspect = window.innerWidth / window.innerHeight;
+            this.camera.updateProjectionMatrix();
+            this.renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    }
+
+    start() {
+        this.sound.init();
+        this.playing = true;
+        this.health = 100;
+        this.distance = 0;
+        this.score = 0;
+        this.tripleShotTicks = 0;
+        
+        this.enemies.forEach(e => this.scene.remove(e.mesh));
+        this.bullets.forEach(b => this.scene.remove(b));
+        this.shards.forEach(s => this.scene.remove(s.mesh));
+        this.enemies = []; this.bullets = []; this.shards = [];
+
+        document.querySelectorAll('.menu').forEach(m => m.classList.add('hidden'));
+    }
+
+    shoot() {
+        if(!this.playing) return;
+        this.sound.pew();
+        this.createBullet(0);
+        if(this.tripleShotTicks > 0) {
+            this.createBullet(-2.5);
+            this.createBullet(2.5);
+        }
+    }
+
+    createBullet(xOff) {
+        const b = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 3), new THREE.MeshBasicMaterial({color: 0xff00ff}));
+        b.position.set(this.ship.position.x + xOff, 0, this.ship.position.z);
+        this.bullets.push(b);
+        this.scene.add(b);
+    }
+
+    spawn() {
+        if(Math.random() > 0.06) return;
+        const type = Math.random() < 0.6 ? 'RED' : (Math.random() < 0.8 ? 'ORANGE' : 'GREEN');
+        let geo, color;
+
+        if(type === 'RED') { geo = new THREE.BoxGeometry(2.5, 2.5, 2.5); color = 0xff0000; }
+        else if(type === 'ORANGE') { geo = new THREE.SphereGeometry(1.5); color = 0xffaa00; }
+        else { geo = new THREE.OctahedronGeometry(1.8); color = 0x00ff00; }
+
+        const mat = new THREE.MeshPhysicalMaterial({ 
+            color, emissive: color, emissiveIntensity: 2, transparent: true, opacity: 0.7, thickness: 2 
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set((Math.random()-0.5)*50, 0, -180); // Spawn on plane
+        this.enemies.push({ mesh, type, color, seed: Math.random() * 10 });
+        this.scene.add(mesh);
+    }
+
+    createShatter(pos, color) {
+        this.sound.shatter();
+        for(let i=0; i<10; i++) {
+            const shard = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), new THREE.MeshBasicMaterial({color}));
+            shard.position.copy(pos);
+            const vel = new THREE.Vector3((Math.random()-0.5)*0.8, (Math.random()-0.5)*0.2, (Math.random()-0.5)*0.8);
+            this.shards.push({mesh: shard, vel, life: 1.0});
+            this.scene.add(shard);
+        }
+    }
+
+    animate() {
+        requestAnimationFrame(() => this.animate());
+        if(!this.playing) {
+            this.renderer.render(this.scene, this.camera);
+            return;
+        }
+
+        this.distance += 1.5;
+        this.ship.position.x += (this.targetX - this.ship.position.x) * 0.1;
+        this.ship.rotation.z = (this.ship.position.x - this.targetX) * 0.05;
+
+        // Animate Grid
+        this.gridGroup.children.forEach(g => {
+            g.position.z += 3;
+            if(g.position.z > 200) g.position.z = -200;
+        });
+
+        this.spawn();
+
+        // Shards
+        for(let i=this.shards.length-1; i>=0; i--) {
+            const s = this.shards[i];
+            s.mesh.position.add(s.vel);
+            s.life -= 0.02;
+            s.mesh.scale.setScalar(s.life);
+            if(s.life <= 0) { this.scene.remove(s.mesh); this.shards.splice(i,1); }
+        }
+
+        // Bullets
+        for(let i=this.bullets.length-1; i>=0; i--) {
+            this.bullets[i].position.z -= 6;
+            if(this.bullets[i].position.z < -200) { this.scene.remove(this.bullets[i]); this.bullets.splice(i,1); }
+        }
+
+        // Enemies
+        for(let i=this.enemies.length-1; i>=0; i--) {
+            const e = this.enemies[i];
+            e.mesh.position.z += 2.8;
+            e.mesh.position.x += Math.sin(Date.now()*0.003 + e.seed) * 0.3; // Sinusoidal movement
+            e.mesh.rotation.y += 0.04;
+
+            // Collision: Bullet
+            let hit = false;
+            this.bullets.forEach((b, bi) => {
+                if(!hit && e.mesh.position.distanceTo(b.position) < 3.5) {
+                    this.createShatter(e.mesh.position, e.color);
+                    this.score += 100;
+                    if(e.type === 'ORANGE') this.tripleShotTicks = 400;
+                    if(e.type === 'GREEN') this.health = Math.min(100, this.health + 20);
+                    this.scene.remove(e.mesh); this.enemies.splice(i,1);
+                    this.scene.remove(b); this.bullets.splice(bi, 1);
+                    hit = true;
+                }
+            });
+
+            // Collision: Ship
+            if(!hit && e.mesh.position.distanceTo(this.ship.position) < 3) {
+                if(e.type === 'RED') this.health -= 25;
+                this.createShatter(e.mesh.position, e.color);
+                this.scene.remove(e.mesh); this.enemies.splice(i,1);
+                hit = true;
+            }
+
+            if(!hit && e.mesh.position.z > 40) { this.scene.remove(e.mesh); this.enemies.splice(i,1); }
+        }
+
+        if(this.tripleShotTicks > 0) this.tripleShotTicks--;
+
+        // Update UI
+        document.getElementById('health').innerText = Math.max(0, this.health);
+        document.getElementById('dist').innerText = Math.floor(this.distance);
+        document.getElementById('score').innerText = this.score;
+
+        if(this.health <= 0) { this.playing = false; document.getElementById('gameOverMenu').classList.remove('hidden'); }
+        if(this.distance >= 5000) { this.playing = false; document.getElementById('winMenu').classList.remove('hidden'); }
+
+        this.renderer.render(this.scene, this.camera);
+    }
+}
+
+// Initializing the game
+const game = new NeonRaider();
+</script>
+</body>
+</html>
